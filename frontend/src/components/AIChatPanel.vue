@@ -10,7 +10,7 @@
         </div>
         <div class="flex flex-col items-start justify-start">
           <div class="text-white font-inter-semibold text-sm">AI Assistant</div>
-          <div class="text-text-muted font-inter-regular text-xs">Script Analysis & Breakdown</div>
+          <div class="text-text-muted font-inter-regular text-xs">Ready to help with anything</div>
         </div>
       </div>
       <div class="flex flex-row items-center justify-start gap-2">
@@ -51,13 +51,14 @@
           </svg>
         </div>
         <div class="flex-1 rounded-t-xl rounded-br-xl rounded-bl-sm bg-background-tertiary p-3 border border-gray-600">
-          <div class="text-white font-inter-medium text-sm mb-2">Hello! I'm your AI assistant for script analysis and project management.</div>
-          <div class="text-text-muted font-inter-regular text-sm mb-2">I can help you:</div>
+          <div class="text-white font-inter-medium text-sm mb-2">Hello! I'm your AI assistant, ready to help with anything you need.</div>
+          <div class="text-text-muted font-inter-regular text-sm mb-2">I can help you with:</div>
           <div class="text-text-muted font-inter-regular text-sm space-y-1">
-            <div>• Upload and analyze scripts</div>
-            <div>• Generate automatic breakdowns</div>
-            <div>• Estimate budgets and timelines</div>
-            <div>• Answer production questions</div>
+            <div>• Script analysis and breakdowns</div>
+            <div>• Budget estimation and planning</div>
+            <div>• General questions and conversations</div>
+            <div>• Creative ideas and brainstorming</div>
+            <div>• Technical support and advice</div>
           </div>
         </div>
       </div>
@@ -169,7 +170,7 @@
             v-model="currentMessage"
             @keypress.enter="sendMessage"
             type="text"
-            placeholder="Ask about scripts, budgets, scheduling..."
+            placeholder="Ask me anything..."
             class="flex-1 rounded-lg bg-background-primary border border-gray-600 h-10 px-4 text-white placeholder-text-muted focus:outline-none focus:border-secondary transition-colors font-inter-regular text-sm"
           />
           <button 

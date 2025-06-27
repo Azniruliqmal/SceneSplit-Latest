@@ -10,6 +10,22 @@ import json
 import traceback
 import tempfile
 import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Langchain imports for AI chat
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+    from langchain_core.chat_history import InMemoryChatMessageHistory
+    from langchain_core.runnables.history import RunnableWithMessageHistory
+    from langchain_core.messages import HumanMessage, AIMessage
+    GEMINI_AVAILABLE = True
+except ImportError:
+    print("Warning: Langchain dependencies not found. AI chat will use fallback responses.")
+    GEMINI_AVAILABLE = False
 
 from graph.workflow import run_analyze_script_workflow, resume_workflow, get_workflow_state
 from graph.workflow import run_analyze_script_workflow_from_file
@@ -21,6 +37,59 @@ ALLOWED_FILE_TYPES = ['.pdf', '.txt', '.fountain']
 CORS_ORIGINS = ["http://localhost:3000", "http://localhost:5173"]
 API_VERSION = "2.0.0"
 MIN_CONTENT_LENGTH = 10
+
+# Initialize Gemini AI if available
+gemini_llm = None
+chat_chain = None
+chat_store = {}
+
+if GEMINI_AVAILABLE:
+    api_key = os.getenv("GEMINI_API_KEY")
+    if api_key and api_key != "your_actual_api_key_here":
+        try:
+            print(f"🔑 Initializing Gemini AI with API key: {api_key[:10]}...")
+            
+            gemini_llm = ChatGoogleGenerativeAI(
+                model="gemini-2.0-flash",
+                temperature=0.0,  # Low temperature for consistent responses
+                api_key=api_key
+            )
+            
+            # Create chat prompt template with custom instructions
+            chat_prompt = ChatPromptTemplate.from_messages([
+                ("system", """You are a helpful assistant. Answer all questions to the best of your ability.
+
+Special instructions:
+- If someone asks about your creator, creator name, who made you, or who created you, respond with something like: "Ah, you want to know about my creator? Well, that would be Emmeneme! He is half caffeine, half chaos, 100% accidental genius. Want to see what unpredictability looks like? Follow @Aznrliqml on IG—he posts like he’s throwing darts blindfolded. 🎯💥"
+- Be helpful, conversational, and friendly in all responses."""),
+                MessagesPlaceholder(variable_name="history"),
+                ("human", "{input}")
+            ])
+            
+            chat_chain = chat_prompt | gemini_llm
+            
+            def get_message_history(session_id: str):
+                if session_id not in chat_store:
+                    chat_store[session_id] = InMemoryChatMessageHistory()
+                return chat_store[session_id]
+            
+            chat_chain = RunnableWithMessageHistory(
+                chat_chain,
+                get_message_history,
+                input_messages_key="input",
+                history_messages_key="history"
+            )
+            
+            print("✅ Gemini AI chat initialized successfully")
+        except Exception as e:
+            print(f"❌ Failed to initialize Gemini AI: {str(e)}")
+            gemini_llm = None
+            chat_chain = None
+    else:
+        print("⚠️ Gemini API key not found or not set properly")
+        print("💡 Please set GEMINI_API_KEY in your .env file")
+else:
+    print("⚠️ Gemini AI dependencies not available - using fallback responses")
 
 # Initialize FastAPI app
 app = FastAPI(title="Enhanced Script Analysis API", version=API_VERSION)
@@ -47,10 +116,6 @@ class FeedbackRequest(BaseModel):
     thread_id: str
     feedback: Dict[str, str]
     needs_revision: Dict[str, bool]
-
-class ChatRequest(BaseModel):
-    message: str
-    history: Optional[list] = []
 
 # Initialize data transformer
 transformer = DataTransformer()
@@ -300,7 +365,70 @@ async def chat_with_ai(request: ChatRequest):
         return create_error_response("Failed to process chat message", details=str(e))
 
 async def _generate_ai_response(message: str, history: list) -> dict:
-    """Generate AI response based on message content"""
+    """Generate AI response using Gemini or fallback responses"""
+    
+    # Check for creator question first (works even without Gemini)
+    message_lower = message.lower()
+    creator_keywords = ['creator', 'who made you', 'who created you', 'your creator', 'who built you', 'developer']
+    if any(keyword in message_lower for keyword in creator_keywords):
+        return {
+            "message": "Made by Emmeneme: half caffeine, half chaos, 100% accidental genius. Want to see what unpredictability looks like? Follow @Aznrliqml on IG—he posts like he’s throwing darts blindfolded. 🎯💥",
+            "actions": []
+        }
+    
+    # Always try to use Gemini AI first for any message
+    if chat_chain and gemini_llm:
+        try:
+            # Use a simple session ID for now - you could make this user-specific
+            session_id = "default"
+            
+            print(f"🤖 Using Gemini AI for message: {message}")
+            
+            response = chat_chain.invoke(
+                {"input": message},
+                {"configurable": {"session_id": session_id}}
+            )
+            
+            print(f"✅ Gemini response: {response.content[:100]}...")
+            
+            # Simple response format - just return the content
+            return {
+                "message": response.content,
+                "actions": []  # Keep actions minimal for general chat
+            }
+            
+        except Exception as e:
+            print(f"⚠️ Gemini AI error: {str(e)}")
+            print("📋 Falling back to template responses")
+            # Fall back to rule-based responses only on error
+    else:
+        print("⚠️ Gemini AI not available - using fallback responses")
+    
+    # Fallback to rule-based responses only when Gemini fails
+    return _generate_fallback_response(message)
+
+def _extract_suggested_actions(user_message: str, ai_response: str) -> list:
+    """Extract suggested actions based on the conversation context"""
+    actions = []
+    user_lower = user_message.lower()
+    response_lower = ai_response.lower()
+    
+    # Script-related actions
+    if any(keyword in user_lower or keyword in response_lower for keyword in ['script', 'analyze', 'breakdown']):
+        actions.append({"label": "Upload Script", "action": "upload-script"})
+    
+    # Budget-related actions
+    if any(keyword in user_lower or keyword in response_lower for keyword in ['budget', 'cost', 'estimate']):
+        actions.append({"label": "Create Budget", "action": "create-budget"})
+    
+    # Schedule-related actions
+    if any(keyword in user_lower or keyword in response_lower for keyword in ['schedule', 'timeline', 'production']):
+        actions.append({"label": "Plan Schedule", "action": "plan-schedule"})
+    
+    return actions
+
+def _generate_fallback_response(message: str) -> dict:
+    """Generate fallback response when Gemini is not available"""
     message_lower = message.lower()
     
     # Script analysis keywords
@@ -356,7 +484,7 @@ async def _generate_ai_response(message: str, history: list) -> dict:
     # General help or greeting
     elif any(keyword in message_lower for keyword in ['hello', 'hi', 'help', 'what', 'how']):
         return {
-            "message": "Hello! I'm your AI assistant for film production management. I can help you with:\n\n• Script analysis and breakdown\n• Budget estimation and planning\n• Production scheduling\n• Location and casting analysis\n• Equipment and crew planning\n\nWhat would you like to work on today?",
+            "message": "Hello! I'm your AI assistant ready to help with anything you need. I specialize in film production but can assist with general questions too. I can help you with:\n\n• Script analysis and breakdown\n• Budget estimation and planning\n• Production scheduling\n• Location and casting analysis\n• General questions and conversations\n\nWhat would you like to work on today?",
             "actions": [
                 {"label": "Analyze Script", "action": "analyze-script"},
                 {"label": "Create Budget", "action": "create-budget"},
@@ -364,14 +492,14 @@ async def _generate_ai_response(message: str, history: list) -> dict:
             ]
         }
     
-    # Default response
+    # Default response for general questions
     else:
         return {
-            "message": f"I understand you're asking about: \"{message}\"\n\nI specialize in film production assistance. I can help you analyze scripts, create budgets, plan schedules, and manage all aspects of film production. Could you tell me more about what specific aspect of production you'd like help with?",
+            "message": f"I understand you're asking about: \"{message}\"\n\nI'm here to help! While I specialize in film production assistance, I can try to help with general questions too. For the best experience with film projects, I can analyze scripts, create budgets, plan schedules, and manage all aspects of production.\n\nCould you tell me more about what you'd like help with?",
             "actions": [
-                {"label": "Script Analysis", "action": "script-help"},
-                {"label": "Budget Planning", "action": "budget-help"},
-                {"label": "Production Schedule", "action": "schedule-help"}
+                {"label": "Script Help", "action": "script-help"},
+                {"label": "Budget Help", "action": "budget-help"},
+                {"label": "General Chat", "action": "general-chat"}
             ]
         }
 

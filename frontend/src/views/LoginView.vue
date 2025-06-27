@@ -1,21 +1,29 @@
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-background-primary">
-    <div class="bg-background-secondary rounded-2xl shadow-2xl p-12 w-full max-w-md flex flex-col items-center border border-gray-700">
-      <!-- Logo and Branding -->
-      <div class="flex items-center justify-center mb-4">
-        <div class="bg-secondary rounded-lg p-2 mr-3">
-          <svg class="w-8 h-8 text-black" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zM9 17H7v-7h2v7zm4 0h-2V7h2v10zm4 0h-2v-4h2v4z"/>
-          </svg>
-        </div>
-        <div class="text-center">
-          <div class="text-xs text-secondary font-inter-semibold mb-1">SceneSplit AI</div>
+  <div class="min-h-screen flex items-center justify-center bg-background-primary relative overflow-hidden">
+    <!-- Background Image -->
+    <div 
+      class="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-30"
+      style="background-image: url('/src/assets/image/bg-posters.png')"
+    ></div>
+    
+    <!-- Dark Overlay -->
+    <div class="absolute inset-0 bg-black bg-opacity-50"></div>
+    
+    <div class="bg-background-secondary/80 backdrop-blur-sm rounded-2xl shadow-2xl p-12 w-full max-w-md flex flex-col items-center border border-gray-700/50 relative z-10">
+      <!-- Logo -->
+      <div class="flex items-center justify-center mb-6">
+        <div class="flex flex-col items-center">
+          <img 
+            src="/src/assets/image/Logo.png" 
+            alt="SceneSplit AI Logo" 
+            class="h-20 w-auto mb-3"
+          />
+          <span class="text-2xl font-inter-bold text-white -mb-5">
+            Scene<span class="text-secondary font-inter-regular italic">Split</span> AI
+          </span>
         </div>
       </div>
       
-      <h1 class="text-3xl font-inter-bold text-white mb-2 text-center">
-        Scene<span class="font-inter-regular italic text-secondary">Split</span>
-      </h1>
       <p class="text-text-muted text-sm mb-8 font-inter-regular text-center">Your AI Buddy for Filmmakers</p>
 
       <!-- Login Form -->
