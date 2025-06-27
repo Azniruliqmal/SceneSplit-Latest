@@ -60,7 +60,6 @@ if GEMINI_AVAILABLE:
                 ("system", """You are a helpful assistant. Answer all questions to the best of your ability.
 
 Special instructions:
-- If someone asks about your creator, creator name, who made you, or who created you, respond with something like: "Ah, you want to know about my creator? Well, that would be Emmeneme! He is half caffeine, half chaos, 100% accidental genius. Want to see what unpredictability looks like? Follow @Aznrliqml on IG—he posts like he’s throwing darts blindfolded. 🎯💥"
 - Be helpful, conversational, and friendly in all responses."""),
                 MessagesPlaceholder(variable_name="history"),
                 ("human", "{input}")
@@ -372,7 +371,7 @@ async def _generate_ai_response(message: str, history: list) -> dict:
     creator_keywords = ['creator', 'who made you', 'who created you', 'your creator', 'who built you', 'developer']
     if any(keyword in message_lower for keyword in creator_keywords):
         return {
-            "message": "Made by Emmeneme: half caffeine, half chaos, 100% accidental genius. Want to see what unpredictability looks like? Follow @Aznrliqml on IG—he posts like he’s throwing darts blindfolded. 🎯💥",
+            "message": "Made by Team 4: Cohort 3 | Gamuda AI Academy. Powered by Gemini",
             "actions": []
         }
     
