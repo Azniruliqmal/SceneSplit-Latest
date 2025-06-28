@@ -1,74 +1,15 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# Virtual Environment
-myvenv/
-venv/
-env/
-ENV/
+__pycache__
+.langgraph_api
+.env
+node_modules
+myvenv
 
 # Environment files
 .env
 .env.local
 .env.production
-.env.development
 
 # API Keys and secrets
 *.key
 secrets/
 config/secrets.json
-
-# Node.js
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Vue.js
-.DS_Store
-dist/
-.cache/
-.temp/
-
-# LangGraph
-.langgraph_api/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Temporary files
-*.tmp
-*.temp
-temp/
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Logs
-logs/
-*.log
