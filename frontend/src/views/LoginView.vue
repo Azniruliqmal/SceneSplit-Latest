@@ -127,6 +127,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useProjectStore } from '../stores/projectStore'
+import { authAPI } from '../api'
 
 const email = ref('')
 const password = ref('')
@@ -167,38 +168,39 @@ async function onLogin() {
   error.value = ''
 
   try {
-    // Simulate API call delay
-    await new Promise(resolve => setTimeout(resolve, 1000))
-
-    // Check against demo users
-    const user = demoUsers.find(u => u.email === email.value && u.password === password.value)
-    
-    if (user) {
-      // Set authentication state
-      projectStore.setLogin(true)
-      projectStore.setUser({
-        name: user.name,
-        role: user.role,
-        email: user.email,
-        type: 'registered'
-      })
-      
-      // Store user data in localStorage for persistence
-      localStorage.setItem('userData', JSON.stringify({
-        name: user.name,
-        role: user.role,
-        email: user.email,
-        type: 'registered'
-      }))
-      
-      router.push({ name: 'ProjectsView' })
+    // Use the store's login method
+    await projectStore.login(email.value, password.value)
+    router.push({ name: 'ProjectsView' })
+  } catch (err: any) {
+    console.error('Login error:', err)
+    // Fallback to demo authentication if API is not available
+    if (err.code === 'ECONNREFUSED' || err.message?.includes('fetch')) {
+      await tryDemoLogin()
     } else {
-      error.value = 'Invalid email or password. Try: admin@scenesplit.com / password123'
+      error.value = err.response?.data?.detail || err.message || 'Login failed. Please try again.'
     }
-  } catch (err) {
-    error.value = 'Login failed. Please try again.'
   } finally {
     isLoading.value = false
+  }
+}
+
+async function tryDemoLogin() {
+  // Check against demo users as fallback
+  const user = demoUsers.find(u => u.email === email.value && u.password === password.value)
+  
+  if (user) {
+    // Set authentication state
+    projectStore.setLogin(true)
+    projectStore.setUser({
+      name: user.name,
+      role: user.role,
+      email: user.email,
+      type: 'registered'
+    })
+    
+    router.push({ name: 'ProjectsView' })
+  } else {
+    error.value = 'Invalid credentials. Demo users: admin@scenesplit.com / password123'
   }
 }
 

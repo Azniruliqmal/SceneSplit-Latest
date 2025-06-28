@@ -1,5 +1,5 @@
 <template>
-  <div class="w-1/2 bg-background-secondary flex flex-col">
+  <div class="w-1/2 bg-background-secondary flex flex-col h-full">
     <!-- Elements Header - Sticky -->
     <div class="flex-shrink-0 p-6 border-b border-gray-700 bg-background-secondary sticky top-0 z-10">
       <div class="flex items-center justify-between mb-4">

@@ -18,15 +18,9 @@
             class="leading-[16.8px] bg-transparent outline-none text-white placeholder-text-muted w-full rounded-md transition-all duration-200 font-inter-regular"
           />
         </div>
-        <div class="w-[100px] rounded-lg bg-gray-700 h-10 flex flex-row items-center justify-center gap-2 text-text-secondary cursor-pointer hover:bg-gray-600 transition-colors">
+        <div class="w-[100px] rounded-lg bg-gray-700 h-10 flex flex-row items-center justify-center gap-2 text-text-secondary cursor-pointer hover:bg-gray-600 transition-colors" @click="exportScenes">
           <img class="w-4 h-4" alt="" src="../assets/icon/download.svg" />
           <div class="leading-[16.8px] font-inter-medium">Export</div>
-        </div>
-        <div class="w-[120px] rounded-lg bg-gray-700 h-10 flex flex-row items-center justify-center gap-1 cursor-pointer text-text-secondary hover:bg-gray-600 transition-colors" @click="showAI = true">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
-          </svg>
-          <div class="leading-[16.8px] font-inter-semibold">AI Assistant</div>
         </div>
         <div class="w-[120px] rounded-lg bg-secondary h-10 flex flex-row items-center justify-center gap-1 cursor-pointer text-black hover:bg-secondary-hover transition-colors" @click="goToNewProject">
           <img class="w-4 h-4 object-cover" alt="" src="../assets/icon/Plus Icon.svg" />
@@ -50,6 +44,8 @@
           @project-change="onProjectChange"
           @scene-select="selectScene"
           @new-project="goToNewProject"
+          @export-scenes="exportScenes"
+          @jump-to-scene="jumpToSceneHandler"
         />
 
         <!-- Elements Panel Component -->
@@ -80,7 +76,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, inject } from 'vue'
+import { ref, computed, watch, inject, onMounted } from 'vue'
 import { useProjectStore } from '../stores/projectStore'
 import { useRouter } from 'vue-router'
 import ScriptPanel from '../components/ScriptPanel.vue'
@@ -95,10 +91,12 @@ const projectStore = useProjectStore()
 
 // Reactive state
 const searchQuery = ref('')
-const selectedProjectTitle = ref(projectStore.selectedProjectTitle || projectStore.projects[0]?.title || '')
+const selectedProjectId = ref(projectStore.selectedProjectId || projectStore.projects[0]?.id || '')
 const selectedSceneNumber = ref<number | null>(null)
 const activeTab = ref('All')
 const showAI = ref(false)
+const analysisData = ref<any>(null)
+const loading = ref(false)
 
 // Element tabs for filtering
 const elementTabs = ['All', 'Cast', 'Props', 'Locations']
@@ -106,11 +104,19 @@ const elementTabs = ['All', 'Cast', 'Props', 'Locations']
 // Computed properties
 const projects = computed(() => projectStore.projects)
 
-const selectedProject = computed(() =>
-  projects.value.find(p => p.title === selectedProjectTitle.value)
-)
+const selectedProject = computed(() => {
+  if (selectedProjectId.value) {
+    return projects.value.find(p => p.id === selectedProjectId.value)
+  }
+  return projects.value[0] // Fallback to first project
+})
 
-const scenes = computed(() => selectedProject.value?.scriptBreakdown?.scenes || [])
+const scenes = computed(() => {
+  if (analysisData.value?.script_breakdown?.scenes) {
+    return analysisData.value.script_breakdown.scenes
+  }
+  return selectedProject.value?.scriptBreakdown?.scenes || []
+})
 
 const selectedScene = computed(() =>
   scenes.value.find(s => s.number === selectedSceneNumber.value)
@@ -191,20 +197,150 @@ function selectScene(sceneNumber: number) {
   selectedSceneNumber.value = sceneNumber
 }
 
-function onProjectChange(projectTitle: string) {
-  selectedProjectTitle.value = projectTitle
+function onProjectChange(projectId: string) {
+  selectedProjectId.value = projectId
   selectedSceneNumber.value = null
-  projectStore.setSelectedProject(projectTitle)
+  projectStore.setSelectedProject(projectId)
+  loadAnalysisData()
+}
+
+async function loadAnalysisData() {
+  if (!selectedProjectId.value) return
+  
+  loading.value = true
+  try {
+    const data = await projectStore.getProjectAnalysis(selectedProjectId.value)
+    analysisData.value = data
+  } catch (error) {
+    console.error('Failed to load analysis data:', error)
+    // Fallback to project data if API fails
+    const project = selectedProject.value
+    if (project?.analysis_data) {
+      analysisData.value = project.analysis_data
+    }
+  } finally {
+    loading.value = false
+  }
 }
 
 function goToNewProject() {
   router.push({ name: 'NewProject' })
 }
 
+function jumpToSceneHandler(sceneNumber: number) {
+  if (sceneNumber) {
+    selectScene(sceneNumber)
+  }
+}
+
+function exportScenes() {
+  if (!selectedProject.value || !scenes.value.length) {
+    showNotification('No scenes to export', 'error')
+    return
+  }
+  
+  try {
+    // Create CSV content
+    const csvContent = generateSceneCSV(scenes.value, selectedProject.value.title)
+    
+    // Create and download file
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', `${selectedProject.value.title}_scenes.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    
+    showNotification(`Exported ${scenes.value.length} scenes successfully!`, 'success')
+  } catch (error) {
+    showNotification('Failed to export scenes', 'error')
+    console.error('Export error:', error)
+  }
+}
+
+function showNotification(message: string, type: 'success' | 'error' = 'success') {
+  // Simple notification implementation
+  const notification = document.createElement('div')
+  notification.className = `fixed top-4 right-4 z-50 px-4 py-3 rounded-lg text-white font-inter-medium transition-all duration-300 ${
+    type === 'success' ? 'bg-green-600' : 'bg-red-600'
+  }`
+  notification.textContent = message
+  document.body.appendChild(notification)
+  
+  setTimeout(() => {
+    notification.style.opacity = '0'
+    setTimeout(() => {
+      document.body.removeChild(notification)
+    }, 300)
+  }, 3000)
+}
+
+function generateSceneCSV(scenes: any[], projectTitle: string): string {
+  const headers = [
+    'Scene #', 
+    'Heading', 
+    'Location', 
+    'Time of Day',
+    'Characters', 
+    'Character Count',
+    'Props', 
+    'Props Count',
+    'Description',
+    'Duration (Est.)'
+  ]
+  
+  const rows = scenes.map(scene => [
+    scene.number,
+    `"${scene.heading || ''}"`,
+    `"${scene.location || ''}"`,
+    `"${scene.timeOfDay || 'DAY'}"`,
+    `"${(scene.characters || []).join(', ')}"`,
+    scene.characters?.length || 0,
+    `"${(scene.props || []).join(', ')}"`,
+    scene.props?.length || 0,
+    `"${scene.notes || ''}"`,
+    `"${scene.estimatedDuration || 'TBD'}"`,
+  ])
+  
+  const totalScenes = scenes.length
+  const totalCharacters = new Set(scenes.flatMap(s => s.characters || [])).size
+  const totalProps = new Set(scenes.flatMap(s => s.props || [])).size
+  const totalLocations = new Set(scenes.map(s => s.location).filter(Boolean)).size
+  
+  const csvContent = [
+    `# Scene Breakdown Export - ${projectTitle}`,
+    `# Generated on ${new Date().toLocaleDateString()} at ${new Date().toLocaleTimeString()}`,
+    `# Summary: ${totalScenes} scenes, ${totalCharacters} unique characters, ${totalProps} props, ${totalLocations} locations`,
+    '',
+    headers.join(','),
+    ...rows.map(row => row.join(','))
+  ].join('\n')
+  
+  return csvContent
+}
+
 // Watch for project changes
 watch(selectedProject, (newProject) => {
   if (newProject) {
-    projectStore.setSelectedProject(newProject.title)
+    projectStore.setSelectedProject(newProject.id)
   }
 }, { immediate: true })
+
+// Watch for store selectedProjectId changes (e.g., when navigating from Projects page)
+watch(() => projectStore.selectedProjectId, (newId) => {
+  if (newId && newId !== selectedProjectId.value) {
+    selectedProjectId.value = newId
+    loadAnalysisData()
+  }
+}, { immediate: true })
+
+// Load analysis data when component mounts
+onMounted(() => {
+  if (selectedProjectId.value) {
+    loadAnalysisData()
+  }
+})
 </script>

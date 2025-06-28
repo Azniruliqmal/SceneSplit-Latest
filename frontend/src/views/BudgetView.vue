@@ -108,7 +108,18 @@
               <div v-for="cat in breakdown" :key="cat.name" class="mb-5">
                 <div class="flex items-center justify-between mb-2">
                   <div class="font-inter-semibold text-white" :style="{ color: cat.color }">{{ cat.name }}</div>
-                  <div class="font-inter-semibold text-white" :style="{ color: cat.color }">{{ cat.amount }}</div>
+                  <div class="flex items-center gap-3">
+                    <div class="font-inter-semibold text-white" :style="{ color: cat.color }">{{ cat.amount }}</div>
+                    <button 
+                      @click="editBudgetCategory(cat)"
+                      class="bg-background-tertiary hover:bg-gray-600 rounded-lg p-2 transition-colors border border-gray-600 text-text-muted hover:text-white"
+                      title="Edit budget amount"
+                    >
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                      </svg>
+                    </button>
+                  </div>
                 </div>
                 <div class="flex items-center gap-4">
                   <div class="flex-1 h-3 rounded-lg bg-background-tertiary relative overflow-hidden">
@@ -141,6 +152,56 @@
     >
       <AIChatPanel v-if="showAI" class="fixed top-0 right-0 z-50" @close="showAI = false" />
     </Transition>
+
+    <!-- Budget Edit Modal -->
+    <div v-if="editingCategory" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div class="bg-background-secondary rounded-xl p-6 w-full max-w-md border border-gray-700">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-inter-bold text-white">Edit Budget Category</h3>
+          <button @click="cancelBudgetEdit" class="text-text-muted hover:text-white">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        
+        <div class="space-y-4">
+          <div>
+            <label class="block text-text-secondary text-sm font-inter-medium mb-2">Category</label>
+            <div class="text-white font-inter-semibold" :style="{ color: editingCategory.color }">
+              {{ editingCategory.name }}
+            </div>
+          </div>
+          
+          <div>
+            <label class="block text-text-secondary text-sm font-inter-medium mb-2">Amount (RM)</label>
+            <input
+              v-model="editAmount"
+              type="number"
+              min="0"
+              step="0.01"
+              class="w-full px-4 py-3 rounded-lg bg-background-tertiary text-white border border-gray-600 focus:outline-none focus:border-secondary focus:ring-2 focus:ring-secondary/20 transition-all font-inter-regular"
+              placeholder="Enter amount"
+            />
+          </div>
+        </div>
+        
+        <div class="flex gap-3 mt-6">
+          <button
+            @click="cancelBudgetEdit"
+            class="flex-1 py-3 px-4 rounded-lg bg-background-tertiary text-text-secondary hover:text-white transition-colors border border-gray-600 font-inter-medium"
+          >
+            Cancel
+          </button>
+          <button
+            @click="saveBudgetEdit"
+            class="flex-1 py-3 px-4 rounded-lg bg-secondary text-black hover:bg-secondary-hover transition-colors font-inter-semibold"
+          >
+            Save Changes
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -167,10 +228,65 @@ function onProjectChange() {
 }
 
 // Helper: parse RM value to number
-function parseRM(val: string | number) {
+function parseRM(val: string | number | unknown): number {
   if (!val) return 0
   const stringVal = String(val)
   return Number(stringVal.replace(/[^\d.]/g, ''))
+}
+
+// Budget editing
+const editingCategory = ref<any>(null)
+const editAmount = ref('')
+
+function editBudgetCategory(category: any) {
+  editingCategory.value = category
+  editAmount.value = parseRM(category.amount).toString()
+}
+
+async function saveBudgetEdit() {
+  if (!editingCategory.value || !selectedProject.value) return
+  
+  try {
+    const newAmount = Number(editAmount.value)
+    if (isNaN(newAmount) || newAmount < 0) {
+      alert('Please enter a valid amount')
+      return
+    }
+    
+    // Update the project budget data
+    const project = selectedProject.value
+    if (project.scriptBreakdown?.budget) {
+      // Find the category key
+      const categoryKey = Object.keys(project.scriptBreakdown.budget).find(key =>
+        formatCategoryName(key) === editingCategory.value.name
+      )
+      
+      if (categoryKey) {
+        project.scriptBreakdown.budget[categoryKey] = `RM ${newAmount}`
+        
+        // Update analysis data if it exists
+        if (project.analysis_data?.script_breakdown?.budget) {
+          project.analysis_data.script_breakdown.budget[categoryKey] = `RM ${newAmount}`
+        }
+        
+        // Save to API if project has ID
+        if (project.id) {
+          await projectStore.updateProjectAnalysis(project.id, project.analysis_data)
+        }
+      }
+    }
+    
+    editingCategory.value = null
+    editAmount.value = ''
+  } catch (error) {
+    console.error('Failed to save budget edit:', error)
+    alert('Failed to save changes. Please try again.')
+  }
+}
+
+function cancelBudgetEdit() {
+  editingCategory.value = null
+  editAmount.value = ''
 }
 
 // Budget summary logic

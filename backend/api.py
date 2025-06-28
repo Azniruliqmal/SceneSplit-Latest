@@ -1,19 +1,31 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from pathlib import Path
 from datetime import datetime
+from contextlib import asynccontextmanager
 import uuid
 import json
 import traceback
 import tempfile
 import os
+import uvicorn
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+# Database imports
+from database.config import init_database, close_database
+from database.models import User, Project
+from database.services import ProjectService, UserService
+from auth.auth import create_demo_users
+
+# Route imports
+from routes.auth import router as auth_router, get_current_user
+from routes.projects import router as projects_router
 
 # Langchain imports for AI chat
 try:
@@ -34,7 +46,7 @@ from models.models import EnhancedScriptAnalysisResponse
 
 # Constants
 ALLOWED_FILE_TYPES = ['.pdf', '.txt', '.fountain']
-CORS_ORIGINS = ["http://localhost:3000", "http://localhost:5173"]
+CORS_ORIGINS = ["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"]
 API_VERSION = "2.0.0"
 MIN_CONTENT_LENGTH = 10
 
@@ -44,8 +56,9 @@ chat_chain = None
 chat_store = {}
 
 if GEMINI_AVAILABLE:
-    api_key = os.getenv("GEMINI_API_KEY")
-    if api_key and api_key != "your_actual_api_key_here":
+    api_key = os.getenv("GEMINI_API_KEY")  
+    # Check for valid API key (not placeholder or test keys)  
+    if api_key and not api_key.startswith('your_actual'):
         try:
             print(f"🔑 Initializing Gemini AI with API key: {api_key[:10]}...")
             
@@ -60,7 +73,6 @@ if GEMINI_AVAILABLE:
                 ("system", """You are a helpful assistant. Answer all questions to the best of your ability.
 
 Special instructions:
-- If someone asks about your creator, creator name, who made you, or who created you, respond with something like: "Ah, you want to know about my creator? Well, that would be Emmeneme! He is half caffeine, half chaos, 100% accidental genius. Want to see what unpredictability looks like? Follow @Aznrliqml on IG—he posts like he’s throwing darts blindfolded. 🎯💥"
 - Be helpful, conversational, and friendly in all responses."""),
                 MessagesPlaceholder(variable_name="history"),
                 ("human", "{input}")
@@ -91,18 +103,79 @@ Special instructions:
 else:
     print("⚠️ Gemini AI dependencies not available - using fallback responses")
 
+# Lifespan event handler
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    try:
+        await init_database()
+        # Create demo users
+        await create_demo_users()
+        print("🚀 Application started successfully")
+    except Exception as e:
+        print(f"❌ Failed to initialize application: {str(e)}")
+    
+    yield
+    
+    # Shutdown
+    try:
+        await close_database()
+        print("👋 Application shutdown complete")
+    except Exception as e:
+        print(f"❌ Error during shutdown: {str(e)}")
+
 # Initialize FastAPI app
-app = FastAPI(title="Enhanced Script Analysis API", version=API_VERSION)
+app = FastAPI(
+    title="SceneSplit AI - Film Production Management API", 
+    version=API_VERSION,
+    lifespan=lifespan
+)
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
+    allow_origins=["*"],  # Allow all origins for development
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
-    expose_headers=["Content-Type"]
+    expose_headers=["*"]
 )
+
+# Health check and CORS test endpoints
+@app.get("/")
+async def root():
+    """Root endpoint for health check"""
+    return {
+        "message": "SceneSplit AI API is running",
+        "version": API_VERSION,
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "version": API_VERSION,
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.options("/{full_path:path}")
+async def options_handler(full_path: str):
+    """Handle preflight OPTIONS requests"""
+    return JSONResponse(
+        content={},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
+# Include routers
+app.include_router(auth_router)
+app.include_router(projects_router)
 
 # Request Models
 class ScriptRequest(BaseModel):
@@ -164,6 +237,8 @@ def _convert_datetime_to_string(obj):
         return {key: _convert_datetime_to_string(value) for key, value in obj.items()}
     elif isinstance(obj, list):
         return [_convert_datetime_to_string(item) for item in obj]
+    elif hasattr(obj, 'model_dump'):
+        return _convert_datetime_to_string(obj.model_dump())
     elif hasattr(obj, 'dict'):
         return _convert_datetime_to_string(obj.dict())
     elif hasattr(obj, '__dict__'):
@@ -235,7 +310,7 @@ async def analyze_script_file(file: UploadFile = File(...)):
         )
         
         return create_success_response(
-            enhanced_response.dict(),
+            enhanced_response.model_dump(),
             f"Analysis completed for {file.filename}"
         )
         
@@ -269,7 +344,7 @@ async def analyze_script(request: ScriptRequest):
         )
         
         return create_success_response(
-            enhanced_response.dict(),
+            enhanced_response.model_dump(),
             "Initial analysis completed"
         )
         
@@ -314,7 +389,7 @@ async def _handle_no_revisions_needed(thread_id: str):
         )
         
         return create_success_response(
-            enhanced_response.dict(),
+            enhanced_response.model_dump(),
             "All analyses approved. Analysis complete!"
         )
     else:
@@ -338,7 +413,7 @@ async def _handle_revisions_needed(request: FeedbackRequest):
               if not result.task_complete else "All revisions complete!")
     
     return create_success_response(
-        enhanced_response.dict(),
+        enhanced_response.model_dump(),
         message
     )
 
@@ -372,7 +447,7 @@ async def _generate_ai_response(message: str, history: list) -> dict:
     creator_keywords = ['creator', 'who made you', 'who created you', 'your creator', 'who built you', 'developer']
     if any(keyword in message_lower for keyword in creator_keywords):
         return {
-            "message": "Made by Emmeneme: half caffeine, half chaos, 100% accidental genius. Want to see what unpredictability looks like? Follow @Aznrliqml on IG—he posts like he’s throwing darts blindfolded. 🎯💥",
+            "message": "Made by Team 4: Cohort 3 | Gamuda AI Academy. Powered by Gemini",
             "actions": []
         }
     
@@ -517,7 +592,7 @@ async def get_workflow_status(thread_id: str):
         )
         
         return create_success_response(
-            enhanced_response.dict(),
+            enhanced_response.model_dump(),
             "Status retrieved successfully"
         )
         
@@ -543,7 +618,7 @@ async def get_scene_data(thread_id: str, scene_id: int):
             return create_error_response(f"Scene {scene_id} not found", status_code=404)
         
         return create_success_response(
-            scene_data.dict(),
+            scene_data.model_dump(),
             f"Scene {scene_id} data retrieved"
         )
         
@@ -587,31 +662,15 @@ async def get_department_data(thread_id: str, department: str):
 def _extract_department_data(enhanced_response, department: str) -> Optional[dict]:
     """Extract department-specific data"""
     department_mapping = {
-        "props": lambda r: r.script_breakdown.props_and_wardrobe.dict(),
-        "locations": lambda r: r.script_breakdown.locations.dict(),
-        "casting": lambda r: r.script_breakdown.characters.dict(),
-        "budget": lambda r: r.production_planning.budget.dict(),
-        "schedule": lambda r: r.production_planning.schedule.dict()
+        "props": lambda r: r.script_breakdown.props_and_wardrobe.model_dump(),
+        "locations": lambda r: r.script_breakdown.locations.model_dump(),
+        "casting": lambda r: r.script_breakdown.characters.model_dump(),
+        "budget": lambda r: r.production_planning.budget.model_dump(),
+        "schedule": lambda r: r.production_planning.schedule.model_dump()
     }
     
     extractor = department_mapping.get(department)
     return extractor(enhanced_response) if extractor else None
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return create_success_response(
-        {
-            "meta": {
-                "success": True,
-                "version": API_VERSION,
-                "timestamp": datetime.now().isoformat()
-            },
-            "status": "healthy",
-            "message": "Enhanced Script Analysis API is running"
-        },
-        "API is healthy"
-    )
 
 # Global exception handler
 @app.exception_handler(Exception)
@@ -626,6 +685,143 @@ async def global_exception_handler(request, exc):
         details=str(exc)
     )
 
+@app.post("/create-project-with-script")
+async def create_project_with_script(
+    title: str = Form(...),
+    description: str = Form(None),
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new project with script analysis and save to database"""
+    temp_file_path = None
+    
+    try:
+        # Validate file
+        temp_file_path = await _process_uploaded_file(file)
+        thread_id = _generate_thread_id()
+        
+        print(f"🚀 Creating project '{title}' for user {current_user.username}")
+        
+        # Run script analysis
+        result = await run_analyze_script_workflow_from_file(
+            temp_file_path, 
+            thread_id=thread_id
+        )
+        
+        # Transform to enhanced structure
+        print("🔄 Transforming analysis result to enhanced structure...")
+        enhanced_response = transformer.transform_to_enhanced_structure(
+            result, 
+            thread_id, 
+            file.filename
+        )
+        print("✅ Enhanced structure transformation completed")
+        
+        # Create project in database
+        print("🔄 Extracting estimated days...")
+        try:
+            estimated_days = enhanced_response.script_breakdown.summary.estimated_shoot_days
+            print(f"✅ Estimated days extracted: {estimated_days}")
+        except AttributeError as e:
+            estimated_days = 10  # Default value
+            print(f"⚠️ Using default estimated days: {estimated_days}, error: {e}")
+        
+        print("🔄 Calculating budget...")
+        try:
+            budget_total = _calculate_total_budget(enhanced_response)
+            print(f"✅ Budget calculated: {budget_total}")
+        except Exception as e:
+            budget_total = 50000.0
+            print(f"⚠️ Using default budget: {budget_total}, error: {e}")
+        
+        print("🔄 Serializing analysis data...")
+        try:
+            analysis_data = enhanced_response.model_dump()
+            print(f"✅ Analysis data serialized, size: {len(str(analysis_data))} chars")
+        except Exception as e:
+            print(f"❌ Failed to serialize analysis data: {e}")
+            raise ValueError(f"Failed to serialize analysis data: {e}")
+            
+        print("🔄 Creating project in database...")
+        try:
+            project = await ProjectService.create_project(
+                title=title,
+                description=description,
+                owner_id=str(current_user.id),  # Convert ObjectId to string
+                script_filename=file.filename,
+                analysis_data=analysis_data,
+                budget_total=budget_total,
+                estimated_duration_days=estimated_days
+            )
+            print(f"✅ Project created in database with ID: {project.id}")
+        except Exception as db_error:
+            print(f"❌ Database creation failed: {str(db_error)}")
+            print(f"❌ Database error traceback: {traceback.format_exc()}")
+            raise ValueError(f"Database creation failed: {str(db_error)}")
+        
+        print("🔄 Preparing response data...")
+        response_data = {
+            "project_id": str(project.id),
+            "title": project.title,
+            "analysis": analysis_data,
+            "message": f"Project '{title}' created successfully with script analysis"
+        }
+        print(f"✅ Response data prepared, project_id: {response_data['project_id']}")
+        
+        print("🔄 Creating success response...")
+        return create_success_response(response_data)
+        
+    except ValueError as e:
+        return create_error_response(str(e), status_code=400)
+    except Exception as e:
+        print(f"❌ Project creation failed: {str(e)}")
+        print(f"Full traceback: {traceback.format_exc()}")
+        return create_error_response("Project creation failed", details=str(e))
+    finally:
+        if temp_file_path:
+            _cleanup_temp_file(temp_file_path)
+
+def _calculate_total_budget(analysis_response) -> float:
+    """Calculate total budget from analysis response"""
+    try:
+        budget_data = analysis_response.production_planning.budget
+        # Simple calculation based on budget categories
+        total = 0.0
+        
+        # Calculate based on scene budget categories
+        for scene_budget in budget_data.scene_breakdown:
+            # Use enum values instead of strings
+            if scene_budget.category.value == "low":
+                total += 5000
+            elif scene_budget.category.value == "medium":
+                total += 15000
+            elif scene_budget.category.value == "high":
+                total += 30000
+            elif scene_budget.category.value == "premium":
+                total += 50000
+            else:
+                # Default to medium if unknown category
+                total += 15000
+        
+        # If no scene breakdown, estimate based on overall category
+        if total == 0.0:
+            overall_category = budget_data.overall_category.value
+            if overall_category == "low":
+                total = 25000
+            elif overall_category == "medium":
+                total = 75000
+            elif overall_category == "high":
+                total = 150000
+            elif overall_category == "premium":
+                total = 250000
+            else:
+                total = 75000  # Default
+        
+        return total
+    except Exception as e:
+        print(f"⚠️ Budget calculation failed: {e}")
+        print(f"⚠️ Budget calculation error details: {traceback.format_exc()}")
+        return 50000.0  # Return a reasonable default
+
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

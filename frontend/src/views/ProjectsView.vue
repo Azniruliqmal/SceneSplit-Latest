@@ -68,11 +68,19 @@
         </div>
         <div class="self-stretch flex flex-row items-center justify-start gap-3 text-sm text-text-secondary">
           <button
-            class="flex-1 rounded-md bg-gray-700 h-9 flex flex-row items-center justify-center text-sm text-text-secondary cursor-pointer transition hover:bg-gray-600 font-inter-medium"
+            class="flex-1 rounded-md bg-gray-700 h-9 flex flex-row items-center justify-center text-sm text-text-secondary cursor-pointer transition hover:bg-gray-600 font-inter-medium disabled:opacity-50 disabled:cursor-not-allowed"
             @click="onViewButtonContainerClick(project)"
+            :disabled="loadingProjectId === project.title"
             type="button"
           >
-            <div class="relative leading-[16.8px]">View Details</div>
+            <div v-if="loadingProjectId === project.title" class="flex items-center gap-2">
+              <svg class="animate-spin h-4 w-4 text-secondary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+              </svg>
+              <span class="relative leading-[16.8px]">Opening...</span>
+            </div>
+            <div v-else class="relative leading-[16.8px]">View Details</div>
           </button>
           <!-- Menu Button -->
           <div class="relative">
@@ -195,6 +203,7 @@ const activeTab = ref('All Projects')
 const searchQuery = ref('')
 const openMenuIndex = ref(-1)
 const openStatusSubmenu = ref(-1)
+const loadingProjectId = ref('')
 
 const statusOptions = [
   { value: 'ACTIVE', label: 'Active', color: 'bg-yellow-400 text-black', dotColor: 'bg-yellow-400' },
@@ -203,6 +212,13 @@ const statusOptions = [
 ]
 
 const router = useRouter()
+
+// Load projects when component mounts
+onMounted(async () => {
+  if (projectStore.isLoggedIn) {
+    await projectStore.fetchProjects()
+  }
+})
 
 const filteredProjects = computed(() => {
   let filtered = projectStore.projects
@@ -259,9 +275,44 @@ function changeProjectStatus(project: any, statusOption: any) {
 }
 
 function onViewButtonContainerClick(project: any) {
-  // Implement navigation or logic for viewing project details here
-  console.log('Viewing project:', project.title)
-  // Example: router.push({ name: 'ProjectDetails', params: { id: project.id } })
+  // Set loading state
+  loadingProjectId.value = project.id || project.title
+  
+  // Set the selected project in the store
+  projectStore.setSelectedProject(project.id || project.title)
+  
+  // Show loading notification
+  showNotification(`Loading "${project.title}" analysis...`, 'info')
+  
+  // Small delay for better UX
+  setTimeout(() => {
+    // Navigate to Script Analysis page
+    router.push({ name: 'ScriptBreakdown' })
+    
+    console.log('Navigating to Script Analysis for project:', project.title)
+    
+    // Reset loading state
+    loadingProjectId.value = ''
+  }, 500)
+}
+
+function showNotification(message: string, type: 'success' | 'error' | 'info' = 'success') {
+  // Simple notification implementation
+  const notification = document.createElement('div')
+  notification.className = `fixed top-4 right-4 z-50 px-4 py-3 rounded-lg text-white font-inter-medium transition-all duration-300 ${
+    type === 'success' ? 'bg-green-600' : type === 'error' ? 'bg-red-600' : 'bg-blue-600'
+  }`
+  notification.textContent = message
+  document.body.appendChild(notification)
+  
+  setTimeout(() => {
+    notification.style.opacity = '0'
+    setTimeout(() => {
+      if (document.body.contains(notification)) {
+        document.body.removeChild(notification)
+      }
+    }, 300)
+  }, 2000)
 }
 
 function editProject(project: any, index: number) {
@@ -277,9 +328,11 @@ function duplicateProject(project: any, index: number) {
   // Implement duplicate functionality
   const duplicatedProject = {
     ...project,
-    title: `${project.title} (Copy)`
+    title: `${project.title} (Copy)`,
+    id: undefined // Remove ID so it gets a new one
   }
-  projectStore.addProject(duplicatedProject)
+  // For now, just add to local array - in a real app you'd call an API
+  projectStore.projects.unshift(duplicatedProject)
 }
 
 function exportProject(project: any, index: number) {

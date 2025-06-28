@@ -180,21 +180,16 @@ async function onGenerate() {
     // Start progress simulation
     simulateProgress()
 
-    // Prepare form data for API
-    const formData = new FormData()
-    formData.append('file', selectedFile.value)
+    // Get project details from filename
+    const projectTitle = selectedFile.value.name.replace(/\.[^/.]+$/, "")
+    const description = `Script analysis for ${projectTitle}`
 
-    // Make API call to backend
-    const response = await fetch('http://localhost:8000/analyze-script-file', {
-      method: 'POST',
-      body: formData,
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    const analysisResult = await response.json()
+    // Use store to create project with script
+    const newProject = await projectStore.createProjectWithScript(
+      projectTitle, 
+      description, 
+      selectedFile.value
+    )
 
     // Wait for progress simulation to complete
     await new Promise(resolve => {
@@ -208,36 +203,6 @@ async function onGenerate() {
       checkProgress()
     })
 
-    // Extract data from API response structure
-    const scriptData = analysisResult.data || analysisResult
-    const breakdown = scriptData.script_breakdown || {}
-    const production = scriptData.production_planning || {}
-
-    // Create new project with API analysis results
-    const newProject = {
-      title: scriptData.source?.original_filename?.replace(/\.[^/.]+$/, "") || selectedFile.value.name.replace(/\.[^/.]+$/, ""),
-      genre: breakdown.summary?.genre || "Feature Film • Drama",
-      status: "REVIEW",
-      statusColor: "bg-[#232733] text-white",
-      budget: production.budget?.estimated_total || "$0",
-      dueDate: "TBD",
-      team: "1 member",
-      scriptBreakdown: {
-        scenes: breakdown.scenes || [],
-        characters: breakdown.characters?.main || [],
-        locations: breakdown.locations?.list || [],
-        props: breakdown.props_and_wardrobe?.props || [],
-        timeline: production.timeline || [],
-        budget: production.budget || {
-          total: 0,
-          categories: []
-        }
-      }
-    }
-
-    // Add to store
-    projectStore.addProject(newProject)
-    
     // Show success message briefly
     currentAnalysisStep.value = 'Analysis complete! Redirecting...'
     
@@ -246,72 +211,21 @@ async function onGenerate() {
       router.push({ name: 'ProjectsView' })
     }, 1000)
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error analyzing script:', error)
     
-    // Check if it's a network error (backend not running)
-    if (error instanceof TypeError && error.message.includes('fetch')) {
-      currentAnalysisStep.value = 'Backend server not available. Creating project without analysis...'
-    } else {
-      currentAnalysisStep.value = 'Analysis failed. Creating project without analysis...'
-    }
+    // Show error to user
+    currentAnalysisStep.value = `Error: ${error.response?.data?.error?.message || 'Failed to analyze script'}`
     
-    // Fallback: create project without API analysis
-    const fallbackProject = {
-      title: selectedFile.value.name.replace(/\.[^/.]+$/, ""),
-      genre: "Feature Film • Drama",
-      status: "REVIEW",
-      statusColor: "bg-[#232733] text-white",
-      budget: "$0",
-      dueDate: "TBD",
-      team: "1 member",
-      scriptBreakdown: {
-        scenes: [
-          {
-            number: 1,
-            heading: "INT. OPENING SCENE - DAY",
-            location: "Interior Location",
-            time: "Day",
-            characters: ["MAIN CHARACTER"],
-            props: ["Basic props"],
-            wardrobe: ["Casual wear"],
-            sfx: [],
-            notes: "Opening establishing scene - awaiting AI analysis",
-            budget: "$500",
-            dialogues: [
-              {
-                character: "MAIN CHARACTER",
-                text: "This script is currently being processed. Full breakdown will be available after AI analysis."
-              }
-            ]
-          }
-        ],
-        characters: [
-          {
-            name: "MAIN CHARACTER",
-            description: "Protagonist - details pending analysis"
-          }
-        ],
-        locations: ["Interior Location"],
-        props: ["Basic props"],
-        timeline: [],
-        budget: {
-          total: 500,
-          categories: [
-            { name: "Pre-production", amount: 500 }
-          ]
-        }
-      }
-    }
-
-    projectStore.addProject(fallbackProject)
-    
+    // Reset state after showing error
     setTimeout(() => {
-      router.push({ name: 'ProjectsView' })
-    }, 2000) // Longer delay to show the message
-    
+      isGenerating.value = false
+      analysisProgress.value = 0
+      currentAnalysisStep.value = ''
+    }, 3000)
   } finally {
-    isGenerating.value = false
+    // This will run regardless of success or failure
+    // We don't set isGenerating to false here since we handle it in success/error cases
   }
 }
 </script>
