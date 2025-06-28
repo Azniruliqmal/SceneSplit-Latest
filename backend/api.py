@@ -824,4 +824,9 @@ def _calculate_total_budget(analysis_response) -> float:
         return 50000.0  # Return a reasonable default
 
 if __name__ == "__main__":
+<<<<<<< HEAD
     uvicorn.run(app, host="0.0.0.0", port=8000)
+=======
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+>>>>>>> 5f8ef16e435a033f60e04e56c9e68909ca410243
